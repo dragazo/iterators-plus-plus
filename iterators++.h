@@ -10,36 +10,47 @@
 #include <iterator>
 #include <numeric>
 
+// an iterator traits helper specifically for the requirements of value_iterator.
+// this helper decides on all the compile-time iterator traits to use and value_iterator aliases them and performs sfinae logic to provide the correct interface.
 template<typename T>
 struct value_iterator_traits
 {
-public: // -- types -- //
+public: // -- simple types -- //
 
-	typedef T value_type;
+	typedef T value_type; // the type held by a value iterator
 
-	typedef T *pointer;
-	typedef T &reference;
+	typedef T *pointer;   // the pointer type to use for aliasing the stored object
+	typedef T &reference; // the reference type to use for aliasing the stored object
 
-public: // -- helpers -- //
+private: // -- helpers -- //
 	
 	// given the type _T (should be the same as T), creates an overload set.
 	// the return value of the function selected by passing nullptr is the difference type - should only be used in decltype contexts.
 	template<typename _T = T>
-	static void __diff_type_f(void*);
-
+	static void __diff_type(void*);
 	template<typename _T = T, std::enable_if_t<std::is_integral<_T>::value, int> = 0>
-	static _T __diff_type_f(std::nullptr_t);
-
+	static _T __diff_type(std::nullptr_t);
 	template<typename _T = T, std::enable_if_t<std::is_pointer<_T>::value, int> = 0>
-	static std::ptrdiff_t __diff_type_f(std::nullptr_t);
+	static std::ptrdiff_t __diff_type(std::nullptr_t);
 
-public: // -- smart types -- //
+	// given the type _T (should be the same as T), creates an overload set.
+	// the return value of the function selected by passing nullptr is a type denoting if _T has an operator -- (prefix).
+	template<typename _T = T>
+	static std::false_type __has_prefix_dec(void*);
+	template<typename _T = T, std::enable_if_t<!std::is_same<decltype(--*(_T*)nullptr), void>::value, int> = 0>
+	static std::true_type __has_prefix_dec(std::nullptr_t);
 
-	typedef typename decltype(__diff_type_f(nullptr)) difference_type;
+public: // -- fancy types -- //
 
-	typedef std::conditional_t<std::is_same<difference_type, void>::value,
-		std::forward_iterator_tag,
-		std::random_access_iterator_tag> iterator_category;
+	// the difference type to use for random access operators.
+	// this is void if the iterator is not random access.
+	typedef typename decltype(__diff_type(nullptr)) difference_type;
+
+	// the iterator category type denoting the capabilities of a value iterator for type T.
+	// this is random access if the difference type is non-void, otherwise bidirectional if a -- (prefix) operator exists, otherwise forward only.
+	typedef std::conditional_t<!std::is_same<difference_type, void>::value, std::random_access_iterator_tag,
+		std::conditional_t<decltype(__has_prefix_dec(nullptr))::value, std::bidirectional_iterator_tag,
+		std::forward_iterator_tag>> iterator_category;
 };
 
 // holds (by-value) an object of type T - iterator operations modify/fetch the value as if it pointed into an imaginary container of T values.
@@ -54,9 +65,9 @@ class value_iterator
 public: // -- types -- //
 
 	typedef typename value_iterator_traits<T>::iterator_category iterator_category;
-	typedef typename value_iterator_traits<T>::value_type value_type;
-
 	typedef typename value_iterator_traits<T>::difference_type difference_type;
+
+	typedef typename value_iterator_traits<T>::value_type value_type;
 
 	typedef typename value_iterator_traits<T>::pointer pointer;
 	typedef typename value_iterator_traits<T>::reference reference;
@@ -101,13 +112,18 @@ public: // -- data access -- //
 
 public: // -- forward iterator functions -- //
 
-	// increments the stored T value
+	// increments the stored T value.
 	constexpr value_iterator &operator++() noexcept(noexcept(++data)) { ++data; return *this; }
-	constexpr value_iterator operator++(int) noexcept(noexcept(++data) && std::is_nothrow_move_constructible<value_iterator>::value) { value_iterator cpy(*this); ++data; return cpy; }
+	constexpr value_iterator operator++(int) { value_iterator cpy(*this); ++data; return cpy; }
 
 public: // -- bidirectional iterator functions -- //
 
-
+	// bidirectional - decrements the stored T value.
+	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && bidirectional, int> = 0>
+	constexpr value_iterator &operator--() noexcept(noexcept(--data)) { --data; return *this; }
+	// bidirectional - decrements the stored T value.
+	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && bidirectional, int> = 0>
+	constexpr value_iterator operator--(int) { value_iterator cpy(*this); --data; return cpy; }
 
 public: // -- random access iterator functions -- //
 
@@ -164,49 +180,61 @@ class func_iterator
 {
 private: // -- data -- //
 
-	V value; // the cached value
-	F func;  // the stored function
+	// buffer for the cached value.
+	// V might not be default constructible and we might not have an initial value at ctor time.
+	alignas(V) char _value[sizeof(V)];
+
+	F func; // the stored function
+
+private: // -- helpers -- //
+
+	// aliases the buffer object with the proper cv-qualifiers for 'this'
+	V &value() noexcept { return reinterpret_cast<V&>(_value); }
+	const V &value() const noexcept { return reinterpret_cast<const V&>(_value); }
 
 public: // -- ctor / dtor / asgn -- //
 
 	// constructs a new function iterator from the given function.
 	// the function is called once to get the initial cached value.
-	constexpr explicit func_iterator(const F &f) : func(f) { value = func(); }
-	constexpr explicit func_iterator(F &&f) : func(std::move(f)) { value = func(); }
+	constexpr explicit func_iterator(const F &f) : func(f) { new (_value) V(func()); }
+	constexpr explicit func_iterator(F &&f) : func(std::move(f)) { new (_value) V(func()); }
+
+	~func_iterator() { value().~V(); }
 
 	// constructs a new function iterator with a copy of other's stored function and cached value.
-	constexpr func_iterator(const func_iterator &other) : value(other.value), func(other.func) {}
+	constexpr func_iterator(const func_iterator &other) : func(other.func) { new (_value) V(other.value()); }
 	// constructs a new function iterator by moving from other's stored function and cached value.
 	// the other iterator is left in an undefined but valid state.
-	constexpr func_iterator(func_iterator &&other) : value(std::move(other.value)), func(std::move(other.func)) {}
+	constexpr func_iterator(func_iterator &&other) : func(std::move(other.func)) { new (_value) V(std::move(other.value())); }
 
 	// copies other's current stored function and cached value to this iterator.
-	constexpr func_iterator &operator=(const func_iterator &other) { value = other.value; func = other.func; return *this; }
+	constexpr func_iterator &operator=(const func_iterator &other) { value() = other.value(); func = other.func; return *this; }
 	// moves other's current stored function and cached value to this iterator.
 	// the other iterator is left in an undefined but valid state.
-	constexpr func_iterator &operator=(func_iterator &&other) { value = std::move(other.value); func = std::move(other.func); return *this; }
+	constexpr func_iterator &operator=(func_iterator &&other) { value() = std::move(other.value()); func = std::move(other.func); return *this; }
 
 public: // -- value access -- //
 
 	// returns the cached value
-	constexpr V &operator*() noexcept { return value; }
-	constexpr const V &operator*() const noexcept { return value; }
+	constexpr V &operator*() & noexcept { return value(); }
+	constexpr V operator*() && noexcept(std::is_nothrow_move_constructible<V>::value) { return std::move(value()); }
+	constexpr const V &operator*() const& noexcept { return value(); }
 
 	// retruns the address of the cached value.
-	constexpr V *operator->() noexcept { return std::addressof(value); }
-	constexpr const V *operator->() const noexcept { return std::addressof(value); }
+	constexpr V *operator->() noexcept { return std::addressof(value()); }
+	constexpr const V *operator->() const noexcept { return std::addressof(value()); }
 
 public: // -- inc -- //
 
 	// calls the stored function to get the next value and stores it to the cached
-	constexpr func_iterator &operator++() { value = func(); return *this; }
-	constexpr func_iterator operator++(int) { func_iterator cpy(*this); value = func(); return cpy; }
+	constexpr func_iterator &operator++() { value() = func(); return *this; }
+	constexpr func_iterator operator++(int) { func_iterator cpy(*this); value() = func(); return cpy; }
 
 public: // -- comparison -- //
 
 	// compares the cached values
-	constexpr friend bool operator==(const func_iterator &a, const func_iterator &b) noexcept(noexcept(a.value == b.value)) { return a.value == b.value; }
-	constexpr friend bool operator!=(const func_iterator &a, const func_iterator &b) noexcept(noexcept(a.value != b.value)) { return a.value != b.value; }
+	constexpr friend bool operator==(const func_iterator &a, const func_iterator &b) noexcept(noexcept(a.value() == b.value())) { return a.value() == b.value(); }
+	constexpr friend bool operator!=(const func_iterator &a, const func_iterator &b) noexcept(noexcept(a.value() != b.value())) { return a.value() != b.value(); }
 };
 
 // represents an iterator that aliases a function with compatibility signature void(V&) for getting the next value.
@@ -242,8 +270,9 @@ public: // -- ctor / dtor / asgn -- //
 public: // -- value access -- //
 
 	// returns the cached value
-	constexpr V &operator*() noexcept { return value; }
-	constexpr const V &operator*() const noexcept { return value; }
+	constexpr V &operator*() & noexcept { return value; }
+	constexpr V operator*() && noexcept(std::is_nothrow_move_constructible<V>::value) { return std::move(value); }
+	constexpr const V &operator*() const& noexcept { return value; }
 
 	// retruns the address of the cached value.
 	constexpr V *operator->() noexcept { return std::addressof(value); }
@@ -264,7 +293,7 @@ public: // -- comparison -- //
 
 // takes a function object and returns a function iterator for it.
 template<typename F, typename V = decltype(std::declval<F>()())>
-auto make_func_iterator(F &&func) { return func_iterator<std::decay_t<F>, V>{ std::forward<F>(func) }; }
+auto make_func_iterator(F &&func) { return func_iterator<std::decay_t<F>, V>(std::forward<F>(func)); }
 
 // takes a function object and ctor args for the initial value and constructs a unary function iterator for it.
 template<typename V, typename F, typename ...Args>
@@ -277,34 +306,37 @@ class count_iterator
 {
 private: // -- data -- //
 
-	std::size_t count; // the stored counter
 	Iter        iter;  // the stored iterator
+	std::size_t count; // the stored counter
 
 public: // -- ctor / dtor / asgn -- //
 
 	// constructs a new counting iterator from the underlying iterator - the count starts at the specified value.
-	constexpr explicit count_iterator(const Iter &_iter, std::size_t _count = 0) : count(_count), iter(_iter) {}
-	constexpr explicit count_iterator(Iter &&_iter, std::size_t _count = 0) : count(_count), iter(std::move(_iter)) {}
+	constexpr explicit count_iterator(const Iter &_iter, std::size_t _count = 0) : iter(_iter), count(_count) {}
+	constexpr explicit count_iterator(Iter &&_iter, std::size_t _count = 0) : iter(std::move(_iter)), count(_count) {}
 
 	// constructs a new counting iterator with a copy of other's stored count and iterator.
-	constexpr count_iterator(const count_iterator &other) : count(other.count), iter(other.iter) {}
+	constexpr count_iterator(const count_iterator &other) : iter(other.iter), count(other.count) {}
 	// constructs a new counting iterator by moving from other's stored count and iterator.
 	// the other iterator is left in an undefined but valid state.
-	constexpr count_iterator(count_iterator &&other) : count(other.count), iter(std::move(other.iter)) {}
+	constexpr count_iterator(count_iterator &&other) : iter(std::move(other.iter)), count(other.count) {}
 
 	// copies other's current count and iterator to this iterator.
-	constexpr count_iterator &operator=(const count_iterator &other) { count = other.count; iter = other.iter; return *this; }
+	constexpr count_iterator &operator=(const count_iterator &other) { iter = other.iter; count = other.count; return *this; }
 	// moves other's current count and iterator to this iterator.
 	// the other iterator is left in an undefined but valid state.
-	constexpr count_iterator &operator=(count_iterator &&other) { count = other.count; iter = std::move(other.iter); return *this; }
+	constexpr count_iterator &operator=(count_iterator &&other) { iter = std::move(other.iter); count = other.count; return *this; }
 
 public: // -- iter access -- //
 
 	// returns the value of dereferencing the stored iterator.
-	constexpr decltype(auto) operator*() { return *iter; }
+	constexpr decltype(auto) operator*() & { return *iter; }
+	constexpr decltype(auto) operator*() && { return *std::move(iter); }
+	constexpr decltype(auto) operator*() const& { return *iter; }
 
 	// returns the value of using the arrow operator on the iterator.
 	constexpr decltype(auto) operator->() { return iter.operator->(); }
+	constexpr decltype(auto) operator->() const { return iter.operator->(); }
 
 public: // -- inc -- //
 
@@ -325,52 +357,44 @@ auto make_count_iterator(Iter &&iter, std::size_t count = 0) { return count_iter
 
 // contains a stored iterator and a stored function.
 // dereferencing this iterator is equivalent to dereferencing the stored iterator, passing it to the function, and using the return value.
-// said mapped value is cached for efficient multi-dereferences.
 template<typename Iter, typename F>
 class mapping_iterator
 {
-public: // -- types -- //
-
-	typedef std::decay_t<decltype(std::declval<F>()(std::declval<decltype(*std::declval<Iter>())>()))> value_t;
-
 private: // -- data -- //
 
-	value_t value; // the cached value
 	Iter    iter;  // the stored iterator
 	F       func;  // the stored function
 
 public: // -- ctor / dtor / asgn -- //
 
 	// creates a new mapping iterator from the given starting iterator and function object.
-	// the initial value is taken from the dereferenced iterator after being passed through the mapping function.
-	mapping_iterator(Iter _iter, const F &_func) : iter(_iter), func(std::move(_func)) { value = func(*iter); }
-	mapping_iterator(Iter _iter, F &&_func) : iter(_iter), func(std::move(_func)) { value = func(*iter); }
+	mapping_iterator(Iter _iter, const F &_func) : iter(std::move(_iter)), func(std::move(_func)) {}
+	mapping_iterator(Iter _iter, F &&_func) : iter(std::move(_iter)), func(std::move(_func)) {}
 
 	// constructs a new mapping iterator with a copy of other's stored iterator and function.
-	constexpr mapping_iterator(const mapping_iterator &other) : value(other.value), iter(other.iter), func(other.func) {}
+	constexpr mapping_iterator(const mapping_iterator &other) : iter(other.iter), func(other.func) {}
 	// constructs a new mapping iterator by moving from other's stored iterator and function.
 	// the other iterator is left in an undefined but valid state.
-	constexpr mapping_iterator(mapping_iterator &&other) : value(other.value), iter(std::move(other.iter)), func(std::move(other.func)) {}
+	constexpr mapping_iterator(mapping_iterator &&other) : iter(std::move(other.iter)), func(std::move(other.func)) {}
 
 	// copies other's current iterator and function to this iterator.
-	constexpr mapping_iterator &operator=(const mapping_iterator &other) { value = other.value; iter = other.iter; func = other.func; return *this; }
+	constexpr mapping_iterator &operator=(const mapping_iterator &other) { iter = other.iter; func = other.func; return *this; }
 	// moves other's current iterator and function to this iterator.
 	// the other iterator is left in an undefined but valid state.
-	constexpr mapping_iterator &operator=(mapping_iterator &&other) { value = std::move(other.value); iter = std::move(other.iter); func = std::move(other.func); return *this; }
+	constexpr mapping_iterator &operator=(mapping_iterator &&other) { iter = std::move(other.iter); func = std::move(other.func); return *this; }
 
 public: // -- access -- //
 
-	// returns the current cached value (already mapped through the stored function)
-	constexpr value_t &operator*() noexcept { return value; }
-
-	// returns the address of the cached value
-	constexpr value_t *operator->() noexcept { return std::addressof(value); }
+	// dereferences the stored iterator, passes it through the mapping function, and returns the result
+	constexpr decltype(auto) operator*() & { return func(*iter); }
+	constexpr decltype(auto) operator*() && { return func(*std::move(iter)); }
+	constexpr decltype(auto) operator*() const& { return func(*iter); }
 
 public: // -- inc -- //
 
-	// increments the stored iterator, passed the dereferenced value to the mapping function, and caches the result
-	constexpr mapping_iterator &operator++() { value = func(*++iter); return *this; }
-	constexpr mapping_iterator operator++(int) { mapping_iterator cpy(*this); value = func(*++iter); return cpy; }
+	// increments the stored iterator.
+	constexpr mapping_iterator &operator++() { ++iter; return *this; }
+	constexpr mapping_iterator operator++(int) { mapping_iterator cpy(*this); ++iter; return cpy; }
 
 public: // -- comparison -- //
 
