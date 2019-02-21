@@ -107,8 +107,9 @@ public: // -- data access -- //
 	constexpr const T &operator*() const& noexcept { return data; }
 
 	// retruns the address of the current stored T value.
-	constexpr T *operator->() noexcept { return std::addressof(data); }
-	constexpr const T *operator->() const noexcept { return std::addressof(data); }
+	constexpr T *operator->() & noexcept { return std::addressof(data); }
+	constexpr T *operator->() && = delete;
+	constexpr const T *operator->() const& noexcept { return std::addressof(data); }
 
 public: // -- forward iterator functions -- //
 
@@ -221,8 +222,9 @@ public: // -- value access -- //
 	constexpr const V &operator*() const& noexcept { return value(); }
 
 	// retruns the address of the cached value.
-	constexpr V *operator->() noexcept { return std::addressof(value()); }
-	constexpr const V *operator->() const noexcept { return std::addressof(value()); }
+	constexpr V *operator->() & noexcept { return std::addressof(value()); }
+	constexpr V *operator->() && = delete;
+	constexpr const V *operator->() const& noexcept { return std::addressof(value()); }
 
 public: // -- inc -- //
 
@@ -275,8 +277,9 @@ public: // -- value access -- //
 	constexpr const V &operator*() const& noexcept { return value; }
 
 	// retruns the address of the cached value.
-	constexpr V *operator->() noexcept { return std::addressof(value); }
-	constexpr const V *operator->() const noexcept { return std::addressof(value); }
+	constexpr V *operator->() & noexcept { return std::addressof(value); }
+	constexpr V *operator->() && = delete;
+	constexpr const V *operator->() const& noexcept { return std::addressof(value); }
 
 public: // -- inc -- //
 
@@ -335,8 +338,9 @@ public: // -- iter access -- //
 	constexpr decltype(auto) operator*() const& { return *iter; }
 
 	// returns the value of using the arrow operator on the iterator.
-	constexpr decltype(auto) operator->() { return iter.operator->(); }
-	constexpr decltype(auto) operator->() const { return iter.operator->(); }
+	constexpr decltype(auto) operator->() & { return iter.operator->(); }
+	constexpr decltype(auto) operator->() && = delete;
+	constexpr decltype(auto) operator->() const& { return iter.operator->(); }
 
 public: // -- inc -- //
 
@@ -360,10 +364,19 @@ auto make_count_iterator(Iter &&iter, std::size_t count = 0) { return count_iter
 template<typename Iter, typename F>
 class mapping_iterator
 {
+public: // -- types -- //
+
+	// the type of value the function will operate on
+	typedef std::decay_t<decltype(std::declval<F>()(std::declval<decltype(*std::declval<Iter>())>()))> value_t;
+
 private: // -- data -- //
 
 	Iter    iter;  // the stored iterator
 	F       func;  // the stored function
+
+	// optional storage location for the mapped value.
+	// this is required because operator -> needs an lvalue to take the address of, so we need to put the potentially-prvalue result somewhere.
+	mutable value_t temp_mapped_value;
 
 public: // -- ctor / dtor / asgn -- //
 
@@ -389,6 +402,13 @@ public: // -- access -- //
 	constexpr decltype(auto) operator*() & { return func(*iter); }
 	constexpr decltype(auto) operator*() && { return func(*std::move(iter)); }
 	constexpr decltype(auto) operator*() const& { return func(*iter); }
+
+	// dereferences the stored iterator, and passes it through the mapping function.
+	// the result is stored to a temporary location inside this iterator and the address is returned.
+	// care should be taken, though, as the object's lifetime potentially ends on the next -> access or the destruction of this iterator.
+	constexpr value_t *operator->() & { temp_mapped_value = *iter; return std::addressof(temp_mapped_value); }
+	constexpr value_t *operator->() && = delete;
+	constexpr value_t *operator->() const& { temp_mapped_value = *iter; return std::addressof(temp_mapped_value); }
 
 public: // -- inc -- //
 

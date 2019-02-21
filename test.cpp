@@ -120,6 +120,13 @@ int main()
 	assert(L_5.v == 273747);
 	assert(L_6.v == 14231);
 
+	// these should be compile-time errors
+	//value_iterator<zero_int>(zero_int{ 123 })->v;
+	//make_func_iterator([] { return zero_int{ 345 }; })->v;
+	//make_unary_func_iterator<zero_int>([](zero_int &v) {})->v;
+	//make_count_iterator(value_iterator<zero_int>(zero_int{ 234 }))->v;
+	//make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; })->v;
+
 	// currently can't use arrow operator on mapping iterators - ideally i'd like to fix that, but i'm not sure it's possible
 	//assert(make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; })->v == 14231);
 
