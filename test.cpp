@@ -126,15 +126,19 @@ int main()
 	//make_unary_func_iterator<zero_int>([](zero_int &v) {})->v;
 	//make_count_iterator(value_iterator<zero_int>(zero_int{ 234 }))->v;
 	//make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; })->v;
+	//make_mapping_iterator(make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; }), [](const zero_int &v) { return v; })->v;
+
+	auto map_map_1 = make_mapping_iterator(make_mapping_iterator(value_iterator<zero_int>(zero_int{ 142312 }), [](const zero_int &v) { return v; }), [](const zero_int &v) { return v; });
+	assert(map_map_1->v == 142312);
 
 	// currently can't use arrow operator on mapping iterators - ideally i'd like to fix that, but i'm not sure it's possible
 	//assert(make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; })->v == 14231);
 
-	static_assert(std::is_same<value_iterator<char>::difference_type, char>::value, "traits error");
-	static_assert(std::is_same<value_iterator<unsigned short>::difference_type, unsigned short>::value, "traits error");
+	static_assert(std::is_same<value_iterator<char>::difference_type, signed char>::value, "traits error");
+	static_assert(std::is_same<value_iterator<unsigned short>::difference_type, short>::value, "traits error");
 	static_assert(std::is_same<value_iterator<int>::difference_type, int>::value, "traits error");
 	static_assert(std::is_same<value_iterator<long>::difference_type, long>::value, "traits error");
-	static_assert(std::is_same<value_iterator<std::size_t>::difference_type, std::size_t>::value, "traits error");
+	static_assert(std::is_same<value_iterator<std::size_t>::difference_type, std::make_signed_t<std::size_t>>::value, "traits error");
 
 	static_assert(std::is_same<value_iterator<unsigned long>::iterator_category, std::random_access_iterator_tag>::value, "rand access type failed");
 	static_assert(std::is_same<value_iterator<int>::iterator_category, std::random_access_iterator_tag>::value, "rand access type failed");
@@ -150,13 +154,13 @@ int main()
 	static_assert(std::is_same<value_iterator<volatile char*>::iterator_category, std::random_access_iterator_tag>::value, "rand access type failed");
 	static_assert(std::is_same<value_iterator<const volatile std::ostream*>::iterator_category, std::random_access_iterator_tag>::value, "rand access type failed");
 
-	static_assert(std::is_same<value_iterator<up_down_counter>::difference_type, void>::value, "traits error");
+	static_assert(std::is_same<value_iterator<up_down_counter>::difference_type, std::ptrdiff_t>::value, "traits error");
 	static_assert(std::is_same<value_iterator<up_down_counter>::iterator_category, std::bidirectional_iterator_tag>::value, "traits error");
 
-	static_assert(std::is_same<value_iterator<up_counter>::difference_type, void>::value, "traits error");
+	static_assert(std::is_same<value_iterator<up_counter>::difference_type, std::ptrdiff_t>::value, "traits error");
 	static_assert(std::is_same<value_iterator<up_counter>::iterator_category, std::forward_iterator_tag>::value, "traits error");
 
-	static_assert(std::is_same<value_iterator<std::vector<int>>::difference_type, void>::value, "traits error");
+	static_assert(std::is_same<value_iterator<std::vector<int>>::difference_type, std::ptrdiff_t>::value, "traits error");
 	static_assert(std::is_same<value_iterator<std::vector<int>>::iterator_category, std::forward_iterator_tag>::value, "traits error");
 
 	value_iterator<up_down_counter> bidir_test({ 0 });
@@ -173,6 +177,14 @@ int main()
 	assert(bidir_test->v == -8);
 	std::advance(bidir_test, 8);
 	assert(bidir_test->v == 0);
+
+	bidir_test = std::next(bidir_test, 10);
+	assert(bidir_test->v == 10);
+	bidir_test = std::prev(bidir_test, 20);
+	assert(bidir_test->v == -10);
+	bidir_test = std::next(bidir_test, 10);
+	assert(bidir_test->v == 0);
+
 
 	value_iterator<int> rand_test(0);
 
@@ -195,6 +207,12 @@ int main()
 		assert((rand_test + (i + 1)) >= (rand_test + i));
 
 		assert((rand_test + i) <= (rand_test + (i + 1)) && (rand_test + (i + 1)) >= (rand_test + i));
+
+		auto cpy = rand_test;
+		auto dist = std::distance(rand_test + 10, rand_test + 54);
+		std::advance(cpy, dist);
+		assert(dist == 44);
+		assert(*cpy == 44);
 	}
 	for (int i = 0; i < 1024; ++i)
 	{
@@ -212,6 +230,53 @@ int main()
 		std::advance(rand_test, 3);
 		assert(*rand_test == 0);
 	}
+	
+
+	value_iterator<unsigned int> urand_test(0);
+
+	for (unsigned int i = 0; i < 65565; ++i)
+	{
+		assert(*(urand_test + i) == i);
+		assert(*(i + urand_test) == i);
+		assert(*(urand_test - i) == 0u-i);
+
+		assert(urand_test[i] == i);
+		assert(urand_test[i] == i);
+		assert(urand_test[0u-i] == 0u-i);
+
+		assert((urand_test + i) - (urand_test + 32) == i - 32);
+
+		assert((urand_test + i) < (urand_test + (i + 1)));
+		assert((urand_test + i) <= (urand_test + (i + 1)));
+
+		assert((urand_test + (i + 1)) > (urand_test + i));
+		assert((urand_test + (i + 1)) >= (urand_test + i));
+
+		assert((urand_test + i) <= (urand_test + (i + 1)) && (urand_test + (i + 1)) >= (urand_test + i));
+		
+		auto cpy = urand_test;
+		auto dist = std::distance(urand_test + 10, urand_test + 54);
+		std::advance(cpy, dist);
+		assert(dist == 44);
+		assert(*cpy == 44);
+	}
+	for (int i = 0; i < 1024; ++i)
+	{
+		++urand_test;
+		urand_test++;
+		assert(*urand_test == 2);
+		--urand_test;
+		urand_test--;
+		assert(*urand_test == 0);
+
+		std::advance(urand_test, 253);
+		assert(*urand_test == 253);
+		std::advance(urand_test, -256);
+		assert(*urand_test == -3);
+		std::advance(urand_test, 3);
+		assert(*urand_test == 0);
+	}
+
 
 	auto adv_1 = value_iterator<unsigned int>(0);
 	auto adv_2 = value_iterator<int>(0);
@@ -219,6 +284,13 @@ int main()
 	std::advance(adv_2, 1024);
 	assert(*adv_1 == 1024);
 	assert(*adv_2 == 1024);
+
+
+	auto C_1 = make_count_iterator(value_iterator<int>(0));
+	auto C_2 = make_count_iterator(value_iterator<unsigned int>(0u));
+	assert(std::prev(C_1) < C_1);
+	assert(std::prev(C_2) < C_2);
+
 
 	for (auto i : make_value_range(1, 11)) { std::cout << i << ' '; }
 	std::cout << '\n';
@@ -241,6 +313,85 @@ int main()
 		++ctor_1;
 		++ctor_2;
 	}
+
+	auto counter_1 = make_func_iterator([n = 0]()mutable{ return n++; });
+	auto counter_2 = counter_1;
+
+	assert(*counter_1 == 0);
+	assert(*counter_1 == 0);
+
+	assert(*counter_2 == 0);
+	assert(*counter_2 == 0);
+
+	std::advance(counter_1, 64);
+	assert(*counter_1 == 64);
+	assert(*counter_2 == 0);
+
+	counter_2 = counter_1;
+	assert(*counter_1 == 64);
+	assert(*counter_2 == 64);
+
+	auto counter_3 = counter_1;
+	assert(*counter_3 == 64);
+
+	auto lambda_cpy_1 = [](int v) { return 2 * v * v; };
+	auto lambda_cpy_2 = std::move(lambda_cpy_1);
+	auto lambda_cpy_3 = lambda_cpy_1;
+
+	auto F_cpy_1 = make_func_iterator([n = 0]()mutable{ return n++; });
+	auto F_cpy_2 = make_unary_func_iterator<int>([](int n) { n++; }, 0);
+	auto F_cpy_3 = make_mapping_iterator(F_cpy_1, [](int v) { return v; });
+
+	auto F_cpy_1_cpy = F_cpy_1;
+	auto F_cpy_2_cpy = F_cpy_2;
+	auto F_cpy_3_cpy = F_cpy_3;
+
+	F_cpy_1_cpy = F_cpy_1;
+	F_cpy_2_cpy = F_cpy_2;
+	F_cpy_3_cpy = F_cpy_3;
+
+	auto R_1 = make_value_range(1, 26).map([](int v) { return 2 * v * v; });
+	assert(R_1.distance() == 25);
+	assert(R_1.accumulate(0) == 11050);
+	assert(R_1.all_of([](int v) { return v % 2 == 0; }));
+	assert(R_1.none_of([](int v) { return v % 2 != 0; }));
+	assert(!R_1.any_of([](int v) { return v % 2 != 0; }));
+	R_1.for_each([](int v) { assert(v % 2 == 0); });
+	assert(R_1.count(49) == 0);
+	assert(R_1.count(200) == 1);
+	assert(R_1.count_if([](int v) { return v % 2 != 0; }) == 0);
+	assert(*R_1.find(200) == 200);
+	assert(*R_1.find_if([](int v) { return v == 200; }) == 200);
+	assert(*R_1.find_if_not([](int v) { return v != 200; }) == 200);
+
+	auto R_2 = R_1.map([](int v) { return v / 2; });
+	assert(R_2.distance() == 25);
+	assert(R_2.accumulate(0) == 5525);
+	assert(R_2.all_of([](int v) { return v > 0; }));
+	assert(R_2.none_of([](int v) { return v <= 0; }));
+	assert(!R_2.any_of([](int v) { return v <= 0; }));
+	R_2.for_each([](int v) { assert(v > 0); });
+	assert(R_2.count(48) == 0);
+	assert(R_2.count(100) == 1);
+	assert(R_2.count_if([](int v) { return v <= 0; }) == 0);
+	assert(*R_2.find(100) == 100);
+	assert(*R_2.find_if([](int v) { return v == 100; }) == 100);
+	assert(*R_2.find_if_not([](int v) { return v != 100; }) == 100);
+
+	auto R_3 = make_count_range(value_iterator<int>(12), 14);
+	assert(R_3.distance() == 14);
+	assert(R_3.accumulate(0) == 259);
+	assert(R_3.all_of([](int v) { return v >= 12 && v < 26; }));
+	assert(R_3.none_of([](int v) { return !(v >= 12 && v < 26); }));
+	assert(!R_3.any_of([](int v) { return !(v >= 12 && v < 26); }));
+	R_3.for_each([](int v) { assert(v >= 12 && v < 26); });
+	assert(R_3.count(12) == 1);
+	assert(R_3.count(25) == 1);
+	assert(R_3.count(26) == 0);
+	assert(R_3.count_if([](int v) { return v >= 12 && v < 26; }) == R_3.distance());
+	assert(*R_3.find(16) == 16);
+	assert(*R_3.find_if([](int v) { return v == 16; }) == 16);
+	assert(*R_3.find_if_not([](int v) { return v != 16; }) == 16);
 
 	std::cout << "\n\nall tests completed" << std::endl;
 	std::cin.get();
