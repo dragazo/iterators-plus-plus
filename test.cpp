@@ -334,6 +334,41 @@ int main()
 	auto counter_3 = counter_1;
 	assert(*counter_3 == 64);
 
+	int IC_v1[56];
+	const auto &IC_v2 = IC_v1;
+
+	iterator_range<int*> IC_r1_1(IC_v1);
+	IC_r1_1 = IC_v1;
+	IC_r1_1 = std::move(IC_r1_1);
+	assert(IC_r1_1.begin() == std::begin(IC_v1));
+	assert(IC_r1_1.end() == std::end(IC_v1));
+
+	iterator_range<const int*> IC_r1_2(IC_v1);
+	IC_r1_2 = IC_v1;
+	IC_r1_2 = IC_r1_1;
+	IC_r1_2 = const_cast<const iterator_range<int*>&>(IC_r1_1);
+	IC_r1_2 = std::move(IC_r1_1);
+	assert(IC_r1_2.begin() == std::begin(IC_v1));
+	assert(IC_r1_2.end() == std::end(IC_v1));
+	
+	IC_r1_1 = IC_v1;
+	decltype(IC_r1_2) IC_r1_2_mv(std::move(IC_r1_1));
+	IC_r1_2_mv = IC_r1_2_mv;
+	IC_r1_2_mv = std::move(IC_r1_2_mv);
+	assert(IC_r1_2_mv.begin() == std::begin(IC_v1));
+	assert(IC_r1_2_mv.end() == std::end(IC_v1));
+	
+	iterator_range<const int*> IC_r1_3(IC_r1_1);
+	IC_r1_3 = IC_r1_1;
+	assert(IC_r1_3.begin() == std::begin(IC_v1));
+	assert(IC_r1_3.end() == std::end(IC_v1));
+
+	iterator_range<const int*> IC_r2(IC_v2);
+	IC_r2 = IC_v2;
+	IC_r2 = std::move(IC_v2);
+	assert(IC_r2.begin() == std::begin(IC_v2));
+	assert(IC_r2.end() == std::end(IC_v2));
+
 	auto lambda_cpy_1 = [](int v) { return 2 * v * v; };
 	auto lambda_cpy_2 = std::move(lambda_cpy_1);
 	auto lambda_cpy_3 = lambda_cpy_1;
@@ -349,6 +384,22 @@ int main()
 	F_cpy_1_cpy = F_cpy_1;
 	F_cpy_2_cpy = F_cpy_2;
 	F_cpy_3_cpy = F_cpy_3;
+
+	auto SCF_1 = make_func_iterator([n = zero_int{ -1 }]()mutable{ ++n.v; return n; });
+	
+	assert(SCF_1->v == 0);
+	std::advance(SCF_1, 22);
+	assert(SCF_1->v == 22);
+	
+	SCF_1 = SCF_1;
+	assert(SCF_1->v == 22);
+	++SCF_1;
+	assert(SCF_1->v == 23);
+
+	SCF_1 = std::move(SCF_1);
+	assert(SCF_1->v == 23);
+	++SCF_1;
+	assert(SCF_1->v == 24);
 
 	auto R_1 = make_value_range(1, 26).map([](int v) { return 2 * v * v; });
 	assert(R_1.distance() == 25);

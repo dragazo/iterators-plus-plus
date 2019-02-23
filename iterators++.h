@@ -30,11 +30,6 @@ private: // -- helpers -- //
 	template<typename _T = T, std::enable_if_t<std::is_integral<_T>::value, int> = 0>
 	static std::make_signed_t<_T> __diff_type(std::nullptr_t);
 
-	// creates an overload set - the return type of the function selected by passing nullptr denotes if _T satisfies random access requirements.
-	static std::false_type __satisfies_rand_access(void*);
-	template<typename _T = T, std::enable_if_t<std::is_integral<_T>::value || std::is_pointer<_T>::value, int> = 0>
-	static std::true_type __satisfies_rand_access(std::nullptr_t);
-
 	// creates an overload set - the return type of the function selected by passing nullptr is a type denoting if _T has an operator -- (prefix).
 	static std::false_type __has_prefix_dec(void*);
 	template<typename _T = T, std::enable_if_t<!std::is_same<decltype(--*(_T*)nullptr), void>::value, int> = 0>
@@ -48,7 +43,7 @@ public: // -- fancy types -- //
 
 	// the iterator category type denoting the capabilities of a value iterator for type T.
 	// this is potentially random access if T supports it, otherwise bidirectional if a -- (prefix) operator exists, otherwise forward only.
-	typedef std::conditional_t<decltype(__satisfies_rand_access(nullptr))::value, std::random_access_iterator_tag,
+	typedef std::conditional_t<std::is_integral<T>::value || std::is_pointer<T>::value, std::random_access_iterator_tag,
 		std::conditional_t<decltype(__has_prefix_dec(nullptr))::value, std::bidirectional_iterator_tag,
 		std::forward_iterator_tag>> iterator_category;
 };
@@ -185,17 +180,17 @@ private: // -- data -- //
 
 private: // -- helpers -- //
 
-	// copy assigns f as the stored function.
-	template<typename _F = F, std::enable_if_t<std::is_same<_F, F>::value && std::is_copy_assignable<_F>::value, int> = 0>
-	constexpr void assign(const F &f) { func = f; }
-	template<typename _F = F, std::enable_if_t<std::is_same<_F, F>::value && !std::is_copy_assignable<_F>::value, int> = 0>
-	constexpr void assign(const F &f) { func.~F(); new (&func) F(f); }
-
-	// move assigns f as the stored function.
-	template<typename _F = F, std::enable_if_t<std::is_same<_F, F>::value && std::is_move_assignable<_F>::value, int> = 0>
-	constexpr void assign(F &&f) { func = std::move(f); }
-	template<typename _F = F, std::enable_if_t<std::is_same<_F, F>::value && !std::is_move_assignable<_F>::value, int> = 0>
-	constexpr void assign(F &&f) { func.~F(); new (&func) F(std::move(f)); }
+	// assigns f as the stored function.
+	constexpr void assign(const F &f)
+	{
+		if constexpr (std::is_copy_assignable<F>::value) func = f;
+		else if (&f != &func) { func.~F(); new (&func) F(f); } // hax: destroy the old function and copy construct a new one
+	}
+	constexpr void assign(F &&f)
+	{
+		if constexpr (std::is_move_assignable<F>::value) func = std::move(f);
+		else if (&f != &func) { func.~F(); new (&func) F(std::move(f)); } // hax: destroy the old function and move construct a new one
+	}
 
 public: // -- ctor / dtor / asgn -- //
 
@@ -207,7 +202,7 @@ public: // -- ctor / dtor / asgn -- //
 	constexpr assignable_func(assignable_func &&other) : func(std::move(other.func)) {}
 
 	constexpr assignable_func &operator=(const assignable_func &other) { assign(other.func); return *this; }
-	constexpr assignable_func &operator=(const assignable_func &&other) { assign(std::move(other.func)); return *this; }
+	constexpr assignable_func &operator=(assignable_func &&other) { assign(std::move(other.func)); return *this; }
 
 public: // -- access -- //
 
@@ -508,7 +503,7 @@ public: // -- traits -- //
 public: // -- types -- //
 
 	// the type of value the function will operate on
-	typedef std::decay_t<decltype(std::declval<F>()(std::declval<decltype(*std::declval<Iter>())>()))> value_t;
+	typedef std::decay_t<decltype((*(F*)nullptr)(std::declval<decltype(**(Iter*)nullptr)>()))> value_t;
 
 private: // -- data -- //
 
@@ -623,7 +618,7 @@ template<typename Iter, typename F>
 auto make_mapping_iterator(Iter &&iter, F &&func) { return mapping_iterator<std::decay_t<Iter>, std::decay_t<F>>(std::forward<Iter>(iter), std::forward<F>(func)); }
 
 // represents an iterator range - stores a begin() and an end() and can by used in range-based for loops
-template<typename IterBegin, typename IterEnd>
+template<typename IterBegin, typename IterEnd = IterBegin>
 class iterator_range
 {
 private: // -- data -- //
@@ -631,11 +626,13 @@ private: // -- data -- //
 	IterBegin _begin; // the begin iterator
 	IterEnd   _end;   // the end iterator
 
+	template<typename A, typename B> friend class iterator_range;
+
 public: // -- ctor / dtor / asgn -- //
 
-	// constructs a new iterator range with the specified iterator range.
+	// creates a new iterator range with the specified iterator range.
 	constexpr iterator_range(IterBegin b, IterEnd e) : _begin(b), _end(e) {}
-	
+
 	// creates a new iterator range that is a copy of other's iterators.
 	constexpr iterator_range(const iterator_range &other) : _begin(other._begin), _end(other._end) {}
 	// creates a new iterator range by move constructing from other's iterators.
@@ -646,6 +643,22 @@ public: // -- ctor / dtor / asgn -- //
 	// move assignes other's iterators to this object
 	constexpr iterator_range &operator=(iterator_range &&other) { _begin = std::move(other._begin); _end = std::move(other._end); return *this; }
 
+public: // -- conversion ctor / asgn -- //
+
+	// creates a new iterator range by calling std::begin() and std::end() for the given container.
+	// note that this also enables conversion between iterator_range objects of compatible iterator types.
+	template<typename Container> explicit constexpr iterator_range(Container &container) : _begin(std::begin(container)), _end(std::end(container)) {}
+	// copies the iterator range by calling std::begin() and std::end() for the given container.
+	// note that this also enables conversion between iterator_range objects of compatible iterator types.
+	template<typename Container> constexpr iterator_range &operator=(Container &container) { _begin = std::begin(container); _end = std::end(container); return *this; }
+
+	// move conversion constructor for converting between iterator ranges of compatible types.
+	template<typename OtherIterBegin, typename OtherIterEnd>
+	explicit constexpr iterator_range(iterator_range<OtherIterBegin, OtherIterEnd> &&other) : _begin(std::move(other._begin)), _end(std::move(other._end)) {}
+	// move conversion operator for converting between iterator ranges of compatible types.
+	template<typename OtherIterBegin, typename OtherIterEnd>
+	constexpr iterator_range &operator=(iterator_range<OtherIterBegin, OtherIterEnd> &&other) { _begin = std::move(other._begin); _end = std::move(other._end); return *this; }
+	
 public: // -- range access -- //
 
 	// accesses the stored begin iterator.
