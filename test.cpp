@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
+#include <functional>
 
 #include "iterators++.h"
 
@@ -67,27 +68,27 @@ int main()
 	auto f_1 = make_func_iterator([n = 0]()mutable{ return ++n; });
 	for (int i = 0; i < 10; ++i, ++f_1) { assert(*f_1 == i + 1); std::cout << *f_1 << ' '; assert(*f_1 == i + 1); }
 	std::cout << '\n';
-	auto f_2 = make_unary_func_iterator<int>([](int &v) { ++v; }, 1);
+	auto f_2 = make_unary_func_iterator(1, [](int &v) { ++v; });
 	for (int i = 0; i < 10; ++i, ++f_2) { assert(*f_2 == i + 1); std::cout << *f_2 << ' '; assert(*f_2 == i + 1); }
 	std::cout << '\n';
-	for (auto i : make_count_range(make_unary_func_iterator<int>([](int &v) { ++v; }, 1), 10)) { std::cout << i << ' '; }
+	for (auto i : make_count_range(make_unary_func_iterator(1, [](int &v) { ++v; }), 10)) { std::cout << i << ' '; }
 	std::cout << "\n\n";
 
 	auto squares_iter = make_func_iterator([n = 0]()mutable { ++n; return n * n; });
 	auto sqrt_iter = make_func_iterator([n = 0.0]()mutable { return std::sqrt(n += 1); });
 
 	for (auto i : make_count_range(squares_iter, 10)) std::cout << i << ' ';
-	std::cout << "\nsum square 1-10 = " << std::accumulate(make_count_iterator(squares_iter), make_count_iterator(squares_iter, 10), 0) << '\n';
-	std::cout << "sum square 1-10 = " << std::accumulate(make_count_pair(squares_iter, 10), 0) << '\n';
+	std::cout << "\nsum square 1-10 = " << std::accumulate(make_count_iterator(squares_iter, 0), make_count_iterator(squares_iter, 10), 0) << '\n';
+	std::cout << "sum square 1-10 = " << make_count_range(squares_iter, 10).accumulate(0) << '\n';
 	std::cout << "sum square 1-10 = " << make_value_range(1, 11).map([](int v) {return v * v; }).accumulate(0) << '\n';
 	std::cout << "sum square 1-10 = " << make_value_range(1, 11).accumulate(0, [](int a, int b) { return a + b * b; }) << '\n';
 	for (auto i : make_count_range(sqrt_iter, 10)) std::cout << i << ' ';
 	std::cout << "\n\n";
 
 	auto m_1 = make_mapping_iterator(value_iterator<int>(1), [](int v) { return 15; });
-	auto m_2 = make_mapping_iterator(make_count_iterator(value_iterator<int>(1)), [](int v) { return 16; });
+	auto m_2 = make_mapping_iterator(make_count_iterator(value_iterator<int>(1), 0), [](int v) { return 16; });
 	auto m_3 = make_mapping_iterator(make_value_range(1, 11).begin(), [](int v) {return 17; });
-	auto m_4 = map_range(make_value_range(1, 11), [](int v) { return 18; });
+	auto m_4 = make_value_range(1, 11).map([](int v) { return 18; });
 	assert(*m_1 == 15);
 	assert(*m_2 == 16);
 	assert(*m_3 == 17);
@@ -110,8 +111,8 @@ int main()
 	const auto &L_1 = value_iterator<zero_int>(zero_int{ 12345 });
 	const auto &L_2 = *value_iterator<zero_int>(zero_int{ 54321 });
 	const auto &L_3 = *make_func_iterator([] {return zero_int{ 13579 }; });
-	const auto &L_4 = *make_unary_func_iterator<zero_int>([](zero_int &v) {}, zero_int{ 65329 });
-	const auto &L_5 = *make_count_iterator(value_iterator<zero_int>(zero_int{ 273747 }));
+	const auto &L_4 = *make_unary_func_iterator(zero_int{ 65329 }, [](zero_int &v) {});
+	const auto &L_5 = *make_count_iterator(value_iterator<zero_int>(zero_int{ 273747 }), 0);
 	const auto &L_6 = *make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; });
 	assert(L_1->v == 12345);
 	assert(L_2.v == 54321);
@@ -123,7 +124,7 @@ int main()
 	// these should be compile-time errors
 	//value_iterator<zero_int>(zero_int{ 123 })->v;
 	//make_func_iterator([] { return zero_int{ 345 }; })->v;
-	//make_unary_func_iterator<zero_int>([](zero_int &v) {})->v;
+	//make_unary_func_iterator(zero_int{0}, [](zero_int &v) {})->v;
 	//make_count_iterator(value_iterator<zero_int>(zero_int{ 234 }))->v;
 	//make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; })->v;
 	//make_mapping_iterator(make_mapping_iterator(value_iterator<zero_int>(zero_int{ 14231 }), [](const zero_int &v) { return v; }), [](const zero_int &v) { return v; })->v;
@@ -185,6 +186,118 @@ int main()
 	bidir_test = std::next(bidir_test, 10);
 	assert(bidir_test->v == 0);
 
+	value_iterator<int*> CNT_v(nullptr);
+	auto CNT_iter = make_count_iterator(CNT_v, 12);
+	assert(*CNT_v == nullptr);
+
+	assert(CNT_iter.get_iter() == CNT_v);
+	assert(CNT_iter.get_count() == 12);
+	for (std::ptrdiff_t i = 0; i < 256; ++i, ++CNT_iter)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+	}
+	for (std::ptrdiff_t i = 256; i > 0; --i, --CNT_iter)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+	}
+	assert(CNT_iter.get_iter() == CNT_v);
+	assert(CNT_iter.get_count() == 12);
+	for (std::ptrdiff_t i = 0; i > -256; --i, CNT_iter--)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+	}
+	for (std::ptrdiff_t i = -256; i < 0; ++i, CNT_iter++)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+	}
+	assert(CNT_iter.get_iter() == CNT_v);
+	assert(CNT_iter.get_count() == 12);
+
+	assert(CNT_iter.get_iter() == CNT_v);
+	assert(CNT_iter.get_count() == 12);
+	for (std::ptrdiff_t i = 0; i < 256; ++i, CNT_iter += 1)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+
+		assert(CNT_iter[i] == (CNT_v + i)[i]);
+	}
+	for (std::ptrdiff_t i = 256; i > 0; --i, CNT_iter -= 1)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+
+		assert(CNT_iter[i] == (CNT_v + i)[i]);
+	}
+	assert(CNT_iter.get_iter() == CNT_v);
+	assert(CNT_iter.get_count() == 12);
+	for (std::ptrdiff_t i = 0; i > -256; --i, CNT_iter -= 1)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+
+		assert(CNT_iter[i] == (CNT_v + i)[i]);
+	}
+	for (std::ptrdiff_t i = -256; i < 0; ++i, CNT_iter += 1)
+	{
+		assert(CNT_iter.get_iter() == CNT_v + i);
+		assert(CNT_iter.get_count() == 12 + i);
+
+		assert(CNT_iter[i] == (CNT_v + i)[i]);
+	}
+	assert(CNT_iter.get_iter() == CNT_v);
+	assert(CNT_iter.get_count() == 12);
+
+	auto CNT_iter_1 = ++CNT_iter;
+	auto CNT_iter_2 = --CNT_iter;
+	auto CNT_iter_3 = CNT_iter++;
+	auto CNT_iter_4 = CNT_iter--;
+
+	assert(CNT_iter.get_iter() == CNT_v);
+	assert(CNT_iter.get_count() == 12);
+
+	assert(CNT_iter_1.get_iter() == CNT_v + 1 && CNT_iter_1.get_count() == 12 + 1);
+	assert(CNT_iter_2.get_iter() == CNT_v + 0 && CNT_iter_2.get_count() == 12 + 0);
+	assert(CNT_iter_3.get_iter() == CNT_v + 0 && CNT_iter_3.get_count() == 12 + 0);
+	assert(CNT_iter_4.get_iter() == CNT_v + 1 && CNT_iter_4.get_count() == 12 + 1);
+
+	assert((make_count_iterator(CNT_v, 7) + 11).get_iter() == CNT_v + 11);
+	assert((make_count_iterator(CNT_v, 7) + 11).get_count() == 18);
+
+	assert(14 + (make_count_iterator(CNT_v, 8) + 11).get_iter() == CNT_v + 25);
+	assert(14 + (make_count_iterator(CNT_v, 8) + 11).get_count() == 33);
+	
+	assert((make_count_iterator(CNT_v, 8) + 196) - (make_count_iterator(CNT_v, 8) + 142) == 196 - 142);
+	assert((make_count_iterator(CNT_v, 8) + 125) - (make_count_iterator(CNT_v, 8) + 165) == 125 - 165);
+
+	assert(value_iterator<int>(0) < value_iterator<int>(1));
+	assert(!(value_iterator<int>(1) < value_iterator<int>(0)));
+	assert(value_iterator<int>(0) <= value_iterator<int>(1));
+	assert(!(value_iterator<int>(1) <= value_iterator<int>(0)));
+
+	assert(!(value_iterator<int>(0) > value_iterator<int>(1)));
+	assert(value_iterator<int>(1) > value_iterator<int>(0));
+	assert(!(value_iterator<int>(0) >= value_iterator<int>(1)));
+	assert(value_iterator<int>(1) >= value_iterator<int>(0));
+
+	assert(!(value_iterator<int>(0) < value_iterator<int>(0)));
+	assert(!(value_iterator<int>(0) > value_iterator<int>(0)));
+	assert(value_iterator<int>(0) <= value_iterator<int>(0));
+	assert(value_iterator<int>(0) >= value_iterator<int>(0));
+
+	assert(value_iterator<int>(0) == value_iterator<int>(0));
+	assert(!(value_iterator<int>(0) == value_iterator<int>(1)));
+	assert(!(value_iterator<int>(1) == value_iterator<int>(0)));
+	assert(value_iterator<int>(1) == value_iterator<int>(1));
+
+	assert(!(value_iterator<int>(0) != value_iterator<int>(0)));
+	assert(value_iterator<int>(0) != value_iterator<int>(1));
+	assert(value_iterator<int>(1) != value_iterator<int>(0));
+	assert(!(value_iterator<int>(1) != value_iterator<int>(1)));
 
 	value_iterator<int> rand_test(0);
 
@@ -286,17 +399,17 @@ int main()
 	assert(*adv_2 == 1024);
 
 
-	auto C_1 = make_count_iterator(value_iterator<int>(0));
-	auto C_2 = make_count_iterator(value_iterator<unsigned int>(0u));
+	auto C_1 = make_count_iterator(value_iterator<int>(0), 0);
+	auto C_2 = make_count_iterator(value_iterator<unsigned int>(0u), 0);
 	assert(std::prev(C_1) < C_1);
 	assert(std::prev(C_2) < C_2);
 
 
 	for (auto i : make_value_range(1, 11)) { std::cout << i << ' '; }
 	std::cout << '\n';
-	for (auto i : map_range(make_value_range(1, 11), [](int v) { return v; })) { std::cout << i << ' '; }
+	for (auto i : make_value_range(1, 11).map([](int v) { return v; })) { std::cout << i << ' '; }
 	std::cout << '\n';
-	for (auto i : map_range(make_value_range(1, 11), [](int v) { return v * v; })) { std::cout << i << ' '; }
+	for (auto i : make_value_range(1, 11).map([](int v) { return v * v; })) { std::cout << i << ' '; }
 	std::cout << '\n';
 	for (auto i : make_value_range(1, 11).map([](int v) {return v * v; })) { std::cout << i << ' '; }
 	std::cout << '\n';
@@ -304,7 +417,7 @@ int main()
 	std::cout << '\n';
 
 	auto ctor_1 = make_func_iterator([n = 0]()mutable{ return no_default_ctor_zero_int{ n++ }; });
-	auto ctor_2 = make_unary_func_iterator<no_default_ctor_zero_int>([](no_default_ctor_zero_int &v) { ++v.v; }, no_default_ctor_zero_int{ 0 });
+	auto ctor_2 = make_unary_func_iterator(no_default_ctor_zero_int{ 0 }, [](no_default_ctor_zero_int &v) { ++v.v; });
 	for (int i = 0; i < 32; ++i)
 	{
 		assert(ctor_1->v == i);
@@ -374,7 +487,7 @@ int main()
 	auto lambda_cpy_3 = lambda_cpy_1;
 
 	auto F_cpy_1 = make_func_iterator([n = 0]()mutable{ return n++; });
-	auto F_cpy_2 = make_unary_func_iterator<int>([](int n) { n++; }, 0);
+	auto F_cpy_2 = make_unary_func_iterator(0, [](int &n) { n++; });
 	auto F_cpy_3 = make_mapping_iterator(F_cpy_1, [](int v) { return v; });
 
 	auto F_cpy_1_cpy = F_cpy_1;
@@ -401,6 +514,8 @@ int main()
 	++SCF_1;
 	assert(SCF_1->v == 24);
 
+	std::cout << '\n';
+
 	auto R_1 = make_value_range(1, 26).map([](int v) { return 2 * v * v; });
 	assert(R_1.distance() == 25);
 	assert(R_1.accumulate(0) == 11050);
@@ -414,6 +529,13 @@ int main()
 	assert(*R_1.find(200) == 200);
 	assert(*R_1.find_if([](int v) { return v == 200; }) == 200);
 	assert(*R_1.find_if_not([](int v) { return v != 200; }) == 200);
+	assert(R_1.adjacent_find() == R_1.end());
+	assert(R_1.adjacent_find(std::equal_to<>{}) == R_1.end());
+	assert(R_1.search_n(1, 0) == R_1.end());
+	assert(R_1.search_n(1, 0, std::equal_to<>{}) == R_1.end());
+
+	R_1.copy(std::ostream_iterator<int>(std::cout, " "));
+	std::cout << '\n';
 
 	auto R_2 = R_1.map([](int v) { return v / 2; });
 	assert(R_2.distance() == 25);
@@ -428,6 +550,13 @@ int main()
 	assert(*R_2.find(100) == 100);
 	assert(*R_2.find_if([](int v) { return v == 100; }) == 100);
 	assert(*R_2.find_if_not([](int v) { return v != 100; }) == 100);
+	assert(R_2.adjacent_find() == R_2.end());
+	assert(R_2.adjacent_find(std::equal_to<>{}) == R_2.end());
+	assert(R_2.search_n(1, 0) == R_2.end());
+	assert(R_2.search_n(1, 0, std::equal_to<>{}) == R_2.end());
+
+	R_2.copy_if(std::ostream_iterator<int>(std::cout, " "), [](int v) { return v != 0; });
+	std::cout << '\n';
 
 	auto R_3 = make_count_range(value_iterator<int>(12), 14);
 	assert(R_3.distance() == 14);
@@ -443,6 +572,12 @@ int main()
 	assert(*R_3.find(16) == 16);
 	assert(*R_3.find_if([](int v) { return v == 16; }) == 16);
 	assert(*R_3.find_if_not([](int v) { return v != 16; }) == 16);
+	assert(R_3.adjacent_find(std::equal_to<>{}) == R_3.end());
+	assert(R_3.search_n(1, 0) == R_3.end());
+	assert(R_3.search_n(1, 0, std::equal_to<>{}) == R_3.end());
+
+	R_3.copy(std::ostream_iterator<int>(std::cout, " "));
+	std::cout << '\n';
 
 	std::cout << "\n\nall tests completed" << std::endl;
 	std::cin.get();

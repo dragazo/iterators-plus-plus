@@ -1,6 +1,6 @@
 # Iterators++
 
-Iterators++ is a library written in standard C++14 that adds all sorts of wacky and useful iterator types that do fun and convenient things.
+Iterators++ is a library written in standard C++17 that adds all sorts of wacky and useful iterator types that do fun and convenient things.
 
 I always thought it was kinda weird that C++, despite having iterators since always, never really did anything interesting with them. I mean think about it: the only unusual iterators in the standard library are i/o iterators, which are actually really interesting as a design choice. But in C++ anything that has the proper interface can be used as an iterator, so why not make some cool things to exploit that?
 

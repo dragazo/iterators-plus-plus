@@ -97,14 +97,12 @@ public: // -- ctor / dtor / asgn -- //
 public: // -- data access -- //
 
 	// returns the current stored T value.
-	constexpr T &operator*() & noexcept { return data; }
-	constexpr T operator*() && noexcept(std::is_nothrow_move_constructible<T>::value) { return std::move(data); }
 	constexpr const T &operator*() const& noexcept { return data; }
+	constexpr T operator*() && noexcept(std::is_nothrow_move_constructible<T>::value) { return std::move(data); }
 
-	// retruns the address of the current stored T value.
-	constexpr T *operator->() & noexcept { return std::addressof(data); }
-	constexpr T *operator->() && = delete;
+	// returns the address of the current stored T value.
 	constexpr const T *operator->() const& noexcept { return std::addressof(data); }
+	constexpr T *operator->() && = delete;
 
 public: // -- forward iterator functions -- //
 
@@ -123,9 +121,9 @@ public: // -- bidirectional iterator functions -- //
 
 public: // -- random access iterator functions -- //
 
-	// random access - copies the current stored value, adds d, and returns the result.
+	// random access - returns the result of adding d to the current value.
 	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && rand_access, int> = 0>
-	constexpr T operator[](difference_type d) { T cpy(data); cpy += d; return cpy; }
+	constexpr T operator[](difference_type d) const { return data + d; }
 
 	// random access - adds d to the current value and returns a reference to this object.
 	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && rand_access, int> = 0>
@@ -134,16 +132,16 @@ public: // -- random access iterator functions -- //
 	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && rand_access, int> = 0>
 	constexpr value_iterator &operator-=(difference_type d) { data -= d; return *this; }
 
-	// random access - copies the current iterator state, adds d to it, and returns the result.
+	// random access - returns a new value iterator which holds the value resulting from adding v's value and d.
 	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && rand_access, int> = 0>
-	constexpr friend value_iterator operator+(const value_iterator &v, difference_type d) { value_iterator cpy(v); cpy += d; return cpy; }
-	// random access - copies the current iterator state, adds d to it, and returns the result.
+	constexpr friend value_iterator operator+(const value_iterator &v, difference_type d) { return value_iterator(v.data + d); }
+	// random access - returns a new value iterator which holds the value resulting from adding d and v's value.
 	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && rand_access, int> = 0>
-	constexpr friend value_iterator operator+(difference_type d, const value_iterator &v) { value_iterator cpy(v); cpy += d; return cpy; }
+	constexpr friend value_iterator operator+(difference_type d, const value_iterator &v) { return value_iterator(d + v.data); }
 
-	// random access - copies the current iterator state, subtracts d from it, and returns the result.
+	// random access - returns a new value iterator which holds the value resulting from subtracting d from v's value.
 	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && rand_access, int> = 0>
-	constexpr friend value_iterator operator-(const value_iterator &v, difference_type d) { value_iterator cpy(v); cpy -= d; return cpy; }
+	constexpr friend value_iterator operator-(const value_iterator &v, difference_type d) { return value_iterator(v.data - d); }
 
 	// random access - returns the difference of the stored T values a-b as defined by type T.
 	template<typename _T = T, std::enable_if_t<std::is_same<_T, T>::value && rand_access, int> = 0>
@@ -213,6 +211,7 @@ public: // -- access -- //
 
 // represents an iterator that aliases a function with compatibility signature V() for getting the next value.
 // the stored function may keep an internal state (e.g. stateful lambdas), enabling highly-modular iterator designs.
+// the value type V must define operator ==.
 template<typename F, typename V = decltype(std::declval<F>()())>
 class func_iterator
 {
@@ -264,14 +263,12 @@ public: // -- ctor / dtor / asgn -- //
 public: // -- value access -- //
 
 	// returns the cached value
-	constexpr V &operator*() & noexcept { return value(); }
-	constexpr V operator*() && noexcept(std::is_nothrow_move_constructible<V>::value) { return std::move(value()); }
 	constexpr const V &operator*() const& noexcept { return value(); }
+	constexpr V operator*() && noexcept(std::is_nothrow_move_constructible<V>::value) { return std::move(value()); }
 
-	// retruns the address of the cached value.
-	constexpr V *operator->() & noexcept { return std::addressof(value()); }
-	constexpr V *operator->() && = delete;
+	// returns the address of the cached value.
 	constexpr const V *operator->() const& noexcept { return std::addressof(value()); }
+	constexpr V *operator->() && = delete;
 
 public: // -- inc -- //
 
@@ -282,13 +279,13 @@ public: // -- inc -- //
 public: // -- comparison -- //
 
 	// compares the cached values
-	constexpr friend bool operator==(const func_iterator &a, const func_iterator &b) noexcept(noexcept(a.value() == b.value())) { return a.value() == b.value(); }
-	constexpr friend bool operator!=(const func_iterator &a, const func_iterator &b) noexcept(noexcept(a.value() != b.value())) { return a.value() != b.value(); }
+	constexpr friend bool operator==(const func_iterator &a, const func_iterator &b) { return a.value() == b.value(); }
+	constexpr friend bool operator!=(const func_iterator &a, const func_iterator &b) { return !(a.value() == b.value()); }
 };
 
 // represents an iterator that aliases a function with compatibility signature void(V&) for getting the next value.
 // the stored function may keep an internal state (e.g. stateful lambdas), enabling highly-modular iterator designs.
-template<typename F, typename V>
+template<typename V, typename F>
 class unary_func_iterator
 {
 public: // -- traits -- //
@@ -308,11 +305,9 @@ private: // -- data -- //
 
 public: // -- ctor / dtor / asgn -- //
 
-	// constructs a new function iterator from the given function - the initial value is constructed from the args.
-	template<typename ...Args>
-	constexpr explicit unary_func_iterator(const F &f, Args &&...args) : value(std::forward<Args>(args)...), func(f) {}
-	template<typename ...Args>
-	constexpr explicit unary_func_iterator(F &&f, Args &&...args) : value(std::forward<Args>(args)...), func(std::move(f)) {}
+	// constructs a new function iterator from the given initial value and function object.
+	template<typename _V, typename _F>
+	constexpr unary_func_iterator(_V &&init_value, _F &&f) : value(std::forward<_V>(init_value)), func(std::forward<_F>(f)) {}
 
 	// constructs a new function iterator with a copy of other's stored function and cached value.
 	constexpr unary_func_iterator(const unary_func_iterator &other) : value(other.value), func(other.func) {}
@@ -329,14 +324,12 @@ public: // -- ctor / dtor / asgn -- //
 public: // -- value access -- //
 
 	// returns the cached value
-	constexpr V &operator*() & noexcept { return value; }
-	constexpr V operator*() && noexcept(std::is_nothrow_move_constructible<V>::value) { return std::move(value); }
 	constexpr const V &operator*() const& noexcept { return value; }
+	constexpr V operator*() && noexcept(std::is_nothrow_move_constructible<V>::value) { return std::move(value); }
 
-	// retruns the address of the cached value.
-	constexpr V *operator->() & noexcept { return std::addressof(value); }
-	constexpr V *operator->() && = delete;
+	// returns the address of the cached value.
 	constexpr const V *operator->() const& noexcept { return std::addressof(value); }
+	constexpr V *operator->() && = delete;
 
 public: // -- inc -- //
 
@@ -348,7 +341,7 @@ public: // -- comparison -- //
 
 	// compares the cached values
 	constexpr friend bool operator==(const unary_func_iterator &a, const unary_func_iterator &b) noexcept(noexcept(a.value == b.value)) { return a.value == b.value; }
-	constexpr friend bool operator!=(const unary_func_iterator &a, const unary_func_iterator &b) noexcept(noexcept(a.value != b.value)) { return a.value != b.value; }
+	constexpr friend bool operator!=(const unary_func_iterator &a, const unary_func_iterator &b) noexcept(noexcept(a.value == b.value)) { return !(a.value == b.value); }
 };
 
 // takes a function object and returns a function iterator for it.
@@ -356,8 +349,8 @@ template<typename F, typename V = decltype(std::declval<F>()())>
 auto make_func_iterator(F &&func) { return func_iterator<std::decay_t<F>, V>(std::forward<F>(func)); }
 
 // takes a function object and ctor args for the initial value and constructs a unary function iterator for it.
-template<typename V, typename F, typename ...Args>
-auto make_unary_func_iterator(F &&func, Args &&...args) { return unary_func_iterator<std::decay_t<F>, V>(std::forward<F>(func), std::forward<Args>(args)...); }
+template<typename V, typename F>
+auto make_unary_func_iterator(V &&init_value, F &&func) { return unary_func_iterator<std::decay_t<V>, std::decay_t<F>>(std::forward<V>(init_value), std::forward<F>(func)); }
 
 // given an iterator type, creates another iterator type that uses a counter for comparison.
 // this is typically used for generating finite sequences without needed to know the effective end iterator's value.
@@ -391,8 +384,8 @@ private: // -- data -- //
 public: // -- ctor / dtor / asgn -- //
 
 	// constructs a new counting iterator from the underlying iterator - the count starts at the specified value.
-	constexpr explicit count_iterator(const Iter &_iter, count_t _count = 0) : iter(_iter), count(_count) {}
-	constexpr explicit count_iterator(Iter &&_iter, count_t _count = 0) : iter(std::move(_iter)), count(_count) {}
+	constexpr explicit count_iterator(const Iter &_iter, count_t _count) : iter(_iter), count(_count) {}
+	constexpr explicit count_iterator(Iter &&_iter, count_t _count) : iter(std::move(_iter)), count(_count) {}
 
 	// constructs a new counting iterator with a copy of other's stored count and iterator.
 	constexpr count_iterator(const count_iterator &other) : iter(other.iter), count(other.count) {}
@@ -410,25 +403,34 @@ public: // -- iter access -- //
 
 	// returns the value of dereferencing the stored iterator.
 	constexpr decltype(auto) operator*() & { return *iter; }
-	constexpr decltype(auto) operator*() && { return *std::move(iter); }
 	constexpr decltype(auto) operator*() const& { return *iter; }
+	constexpr decltype(auto) operator*() && { return *std::move(iter); }
 
 	// returns the value of using the arrow operator on the iterator.
 	constexpr decltype(auto) operator->() & { return iter.operator->(); }
-	constexpr decltype(auto) operator->() && = delete;
 	constexpr decltype(auto) operator->() const& { return iter.operator->(); }
+	constexpr decltype(auto) operator->() && { return std::move(iter).operator->(); }
+
+public: // -- raw access -- //
+
+	// gets the current stored iterator for this counting iterator.
+	constexpr const Iter &get_iter() const& noexcept { return iter; }
+	constexpr Iter get_iter() && noexcept(std::is_nothrow_move_constructible<Iter>::value) { return std::move(iter); }
+
+	// gets the current stored count for this counting iterator.
+	constexpr count_t get_count() const noexcept { return count; }
 
 public: // -- forward iterator functions -- //
 
 	// increments the stored iterator and count
-	constexpr count_iterator &operator++() { ++count; ++iter; return *this; }
+	constexpr count_iterator &operator++() { ++iter; ++count; return *this; }
 	constexpr count_iterator operator++(int) { count_iterator cpy(*this); ++*this; return cpy; }
 
 public: // -- bidirectional iterator functions -- //
 
 	// bidirectional - decrements the stored iterator.
 	template<typename _I = Iter, std::enable_if_t<std::is_same<_I, Iter>::value && bidirectional, int> = 0>
-	constexpr count_iterator &operator--() { --count; --iter; return *this; }
+	constexpr count_iterator &operator--() { --iter; --count; return *this; }
 	// bidirectional - decrements the stored iterator.
 	template<typename _I = Iter, std::enable_if_t<std::is_same<_I, Iter>::value && bidirectional, int> = 0>
 	constexpr count_iterator operator--(int) { count_iterator cpy(*this); --*this; return cpy; }
@@ -441,10 +443,10 @@ public: // -- random access iterator functions -- //
 
 	// random access - adds d to the stored iterator and count.
 	template<typename _I = Iter, std::enable_if_t<std::is_same<_I, Iter>::value && rand_access, int> = 0>
-	constexpr count_iterator &operator+=(difference_type d) { count += d; iter += d; return *this; }
+	constexpr count_iterator &operator+=(difference_type d) { iter += d; count += d; return *this; }
 	// random access - subtracts d from the current iterator and count.
 	template<typename _I = Iter, std::enable_if_t<std::is_same<_I, Iter>::value && rand_access, int> = 0>
-	constexpr count_iterator &operator-=(difference_type d) { count -= d; iter -= d; return *this; }
+	constexpr count_iterator &operator-=(difference_type d) { iter -= d; count -= d; return *this; }
 
 	// random access - copies the current iterator state, adds d to it, and returns the result.
 	template<typename _I = Iter, std::enable_if_t<std::is_same<_I, Iter>::value && rand_access, int> = 0>
@@ -483,7 +485,7 @@ public: // -- comparison -- //
 
 // given an iterator, creates a count iterator with the specified initial count value
 template<typename Iter>
-auto make_count_iterator(Iter &&iter, std::make_signed_t<std::size_t> count = 0) { return count_iterator<std::decay_t<Iter>>(std::forward<Iter>(iter), count); }
+auto make_count_iterator(Iter &&iter, std::make_signed_t<std::size_t> count) { return count_iterator<std::decay_t<Iter>>(std::forward<Iter>(iter), count); }
 
 // contains a stored iterator and a stored function.
 // dereferencing this iterator is equivalent to dereferencing the stored iterator, passing it to the function, and using the return value.
@@ -541,15 +543,15 @@ public: // -- access -- //
 
 	// dereferences the stored iterator, passes it through the mapping function, and returns the result
 	constexpr decltype(auto) operator*() & { return func(*iter); }
-	constexpr decltype(auto) operator*() && { return func(*std::move(iter)); }
 	constexpr decltype(auto) operator*() const& { return func(*iter); }
+	constexpr decltype(auto) operator*() && { return func(*std::move(iter)); }
 
 	// dereferences the stored iterator, and passes it through the mapping function.
 	// the result is stored to a temporary location inside this iterator and the address is returned.
 	// care should be taken, though, as the object's lifetime potentially ends on the next -> access or the destruction of this iterator.
 	constexpr value_t *operator->() & { temp_mapped_value = *iter; return std::addressof(temp_mapped_value); }
-	constexpr value_t *operator->() && = delete;
 	constexpr value_t *operator->() const& { temp_mapped_value = *iter; return std::addressof(temp_mapped_value); }
+	constexpr value_t *operator->() && = delete;
 
 public: // -- inc -- //
 
@@ -662,11 +664,13 @@ public: // -- conversion ctor / asgn -- //
 public: // -- range access -- //
 
 	// accesses the stored begin iterator.
-	constexpr IterBegin begin() const& noexcept(std::is_nothrow_copy_constructible<IterBegin>::value) { return _begin; }
+	constexpr IterBegin &begin() & noexcept { return _begin; }
+	constexpr const IterBegin &begin() const& noexcept { return _begin; }
 	constexpr IterBegin begin() && noexcept(std::is_nothrow_move_constructible<IterBegin>::value) { return std::move(_begin); }
 
 	// accesses the stored end iterator.
-	constexpr IterEnd end() const& noexcept(std::is_nothrow_copy_constructible<IterEnd>::value) { return _end; }
+	constexpr IterEnd &end() & noexcept { return _end; }
+	constexpr const IterEnd &end() const& noexcept { return _end; }
 	constexpr IterEnd end() && noexcept(std::is_nothrow_move_constructible<IterEnd>::value) { return std::move(_end); }
 
 public: // -- mapping -- //
@@ -683,153 +687,197 @@ public: // -- mapping -- //
 		return { { std::move(_begin), func }, { std::move(_end), func } };
 	}
 
-public: // -- stdlib utilities -- //
+public: // -- stdlib predicate/search wrappers -- //
 
 	// equivalent to std::distance() using this range as input.
-	constexpr decltype(auto) distance() & { return std::distance(_begin, _end); }
-	constexpr decltype(auto) distance() && { return std::distance(std::move(_begin), std::move(_end)); }
 	constexpr decltype(auto) distance() const& { return std::distance(_begin, _end); }
+	constexpr decltype(auto) distance() && { return std::distance(std::move(_begin), std::move(_end)); }
 
 	// equivalent to std::accumulate() using this range as input.
-	template<typename T> T accumulate(T &&init) & { return std::accumulate(_begin, _end, std::forward<T>(init)); }
-	template<typename T> T accumulate(T &&init) && { return std::accumulate(std::move(_begin), std::move(_end), std::forward<T>(init)); }
 	template<typename T> T accumulate(T &&init) const& { return std::accumulate(_begin, _end, std::forward<T>(init)); }
+	template<typename T> T accumulate(T &&init) && { return std::accumulate(std::move(_begin), std::move(_end), std::forward<T>(init)); }
 
 	// equivalent to std::accumulate() using this range as input.
-	template<typename T, typename BinaryOperation>
-	T accumulate(T &&init, BinaryOperation &&op) & { return std::accumulate(_begin, _end, std::forward<T>(init), std::forward<BinaryOperation>(op)); }
-	template<typename T, typename BinaryOperation>
-	T accumulate(T &&init, BinaryOperation &&op) && { return std::accumulate(std::move(_begin), std::move(_end), std::forward<T>(init), std::forward<BinaryOperation>(op)); }
 	template<typename T, typename BinaryOperation>
 	T accumulate(T &&init, BinaryOperation &&op) const& { return std::accumulate(_begin, _end, std::forward<T>(init), std::forward<BinaryOperation>(op)); }
+	template<typename T, typename BinaryOperation>
+	T accumulate(T &&init, BinaryOperation &&op) && { return std::accumulate(std::move(_begin), std::move(_end), std::forward<T>(init), std::forward<BinaryOperation>(op)); }
 
 	// equivalent to std::all_of() using this range as input.
-	template<typename UnaryPredicate>
-	constexpr bool all_of(UnaryPredicate &&p) & { return std::all_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
-	template<typename UnaryPredicate>
-	constexpr bool all_of(UnaryPredicate &&p) && { return std::all_of(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 	template<typename UnaryPredicate>
 	constexpr bool all_of(UnaryPredicate &&p) const& { return std::all_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
+	template<typename UnaryPredicate>
+	constexpr bool all_of(UnaryPredicate &&p) && { return std::all_of(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::any_of() using this range as input.
 	template<typename UnaryPredicate>
-	constexpr bool any_of(UnaryPredicate &&p) & { return std::any_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr bool any_of(UnaryPredicate &&p) const& { return std::any_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename UnaryPredicate>
 	constexpr bool any_of(UnaryPredicate &&p) && { return std::any_of(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename UnaryPredicate>
-	constexpr bool any_of(UnaryPredicate &&p) const& { return std::any_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::none_of() using this range as input.
 	template<typename UnaryPredicate>
-	constexpr bool none_of(UnaryPredicate &&p) & { return std::none_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr bool none_of(UnaryPredicate &&p) const& { return std::none_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename UnaryPredicate>
 	constexpr bool none_of(UnaryPredicate &&p) && { return std::none_of(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename UnaryPredicate>
-	constexpr bool none_of(UnaryPredicate &&p) const& { return std::none_of(_begin, _end, std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::all_of() using this range as input.
 	template<typename Policy, typename UnaryPredicate>
-	constexpr bool all_of(Policy &&policy, UnaryPredicate &&p) & { return std::all_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr bool all_of(Policy &&policy, UnaryPredicate &&p) const& { return std::all_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename Policy, typename UnaryPredicate>
 	constexpr bool all_of(Policy &&policy, UnaryPredicate &&p) && { return std::all_of(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename Policy, typename UnaryPredicate>
-	constexpr bool all_of(Policy &&policy, UnaryPredicate &&p) const& { return std::all_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::any_of() using this range as input.
 	template<typename Policy, typename UnaryPredicate>
-	constexpr bool any_of(Policy &&policy, UnaryPredicate &&p) & { return std::any_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr bool any_of(Policy &&policy, UnaryPredicate &&p) const& { return std::any_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename Policy, typename UnaryPredicate>
 	constexpr bool any_of(Policy &&policy, UnaryPredicate &&p) && { return std::any_of(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename Policy, typename UnaryPredicate>
-	constexpr bool any_of(Policy &&policy, UnaryPredicate &&p) const& { return std::any_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::none_of() using this range as input.
 	template<typename Policy, typename UnaryPredicate>
-	constexpr bool none_of(Policy &&policy, UnaryPredicate &&p) & { return std::none_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr bool none_of(Policy &&policy, UnaryPredicate &&p) const& { return std::none_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename Policy, typename UnaryPredicate>
 	constexpr bool none_of(Policy &&policy, UnaryPredicate &&p) && { return std::none_of(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename Policy, typename UnaryPredicate>
-	constexpr bool none_of(Policy &&policy, UnaryPredicate &&p) const& { return std::none_of(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::for_each() using this range as input.
-	template<typename UnaryFunction> constexpr decltype(auto) for_each(UnaryFunction &&f) & { return std::for_each(_begin, _end, std::forward<UnaryFunction>(f)); }
-	template<typename UnaryFunction> constexpr decltype(auto) for_each(UnaryFunction &&f) && { return std::for_each(std::move(_begin), std::move(_end), std::forward<UnaryFunction>(f)); }
 	template<typename UnaryFunction> constexpr decltype(auto) for_each(UnaryFunction &&f) const& { return std::for_each(_begin, _end, std::forward<UnaryFunction>(f)); }
+	template<typename UnaryFunction> constexpr decltype(auto) for_each(UnaryFunction &&f) && { return std::for_each(std::move(_begin), std::move(_end), std::forward<UnaryFunction>(f)); }
 
 	// equivalent to std::for_each() using this range as input.
-	template<typename Policy, typename UnaryFunction>
-	void for_each(Policy &&policy, UnaryFunction &&f) & { return std::for_each(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryFunction>(f)); }
-	template<typename Policy, typename UnaryFunction>
-	void for_each(Policy &&policy, UnaryFunction &&f) && { return std::for_each(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryFunction>(f)); }
 	template<typename Policy, typename UnaryFunction>
 	void for_each(Policy &&policy, UnaryFunction &&f) const& { return std::for_each(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryFunction>(f)); }
+	template<typename Policy, typename UnaryFunction>
+	void for_each(Policy &&policy, UnaryFunction &&f) && { return std::for_each(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryFunction>(f)); }
 
 	// equivalent to std::count() using this range as input.
-	template<typename T> constexpr decltype(auto) count(const T &value) & { return std::count(_begin, _end, value); }
-	template<typename T> constexpr decltype(auto) count(const T &value) && { return std::count(std::move(_begin), std::move(_end), value); }
 	template<typename T> constexpr decltype(auto) count(const T &value) const& { return std::count(_begin, _end, value); }
+	template<typename T> constexpr decltype(auto) count(const T &value) && { return std::count(std::move(_begin), std::move(_end), value); }
 
 	// equivalent to std::count_if() using this range as input.
-	template<typename UnaryPredicate> constexpr decltype(auto) count_if(UnaryPredicate &&p) & { return std::count_if(_begin, _end, std::forward<UnaryPredicate>(p)); }
-	template<typename UnaryPredicate> constexpr decltype(auto) count_if(UnaryPredicate &&p) && { return std::count_if(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 	template<typename UnaryPredicate> constexpr decltype(auto) count_if(UnaryPredicate &&p) const& { return std::count_if(_begin, _end, std::forward<UnaryPredicate>(p)); }
+	template<typename UnaryPredicate> constexpr decltype(auto) count_if(UnaryPredicate &&p) && { return std::count_if(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::count() using this range as input.
-	template<typename Policy, typename T>
-	constexpr decltype(auto) count(Policy &&policy, const T &value) & { return std::count(std::forward<Policy>(policy), _begin, _end, value); }
-	template<typename Policy, typename T>
-	constexpr decltype(auto) count(Policy &&policy, const T &value) && { return std::count(std::forward<Policy>(policy), std::move(_begin), std::move(_end), value); }
 	template<typename Policy, typename T>
 	constexpr decltype(auto) count(Policy &&policy, const T &value) const& { return std::count(std::forward<Policy>(policy), _begin, _end, value); }
+	template<typename Policy, typename T>
+	constexpr decltype(auto) count(Policy &&policy, const T &value) && { return std::count(std::forward<Policy>(policy), std::move(_begin), std::move(_end), value); }
 
 	// equivalent to std::count_if() using this range as input.
 	template<typename Policy, typename UnaryPredicate>
-	constexpr decltype(auto) count_if(Policy &&policy, UnaryPredicate &&p) & { return std::count_if(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr decltype(auto) count_if(Policy &&policy, UnaryPredicate &&p) const& { return std::count_if(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename Policy, typename UnaryPredicate>
 	constexpr decltype(auto) count_if(Policy &&policy, UnaryPredicate &&p) && { return std::count_if(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename Policy, typename UnaryPredicate>
-	constexpr decltype(auto) count_if(Policy &&policy, UnaryPredicate &&p) const& { return std::count_if(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::find() using this range as input.
-	template<typename T> constexpr decltype(auto) find(const T &value) & { return std::find(_begin, _end, value); }
-	template<typename T> constexpr decltype(auto) find(const T &value) && { return std::find(std::move(_begin), std::move(_end), value); }
 	template<typename T> constexpr decltype(auto) find(const T &value) const& { return std::find(_begin, _end, value); }
+	template<typename T> constexpr decltype(auto) find(const T &value) && { return std::find(std::move(_begin), std::move(_end), value); }
 
 	// equivalent to std::find_if() using this range as input.
-	template<typename UnaryPredicate> constexpr decltype(auto) find_if(UnaryPredicate &&p) & { return std::find_if(_begin, _end, std::forward<UnaryPredicate>(p)); }
-	template<typename UnaryPredicate> constexpr decltype(auto) find_if(UnaryPredicate &&p) && { return std::find_if(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 	template<typename UnaryPredicate> constexpr decltype(auto) find_if(UnaryPredicate &&p) const& { return std::find_if(_begin, _end, std::forward<UnaryPredicate>(p)); }
+	template<typename UnaryPredicate> constexpr decltype(auto) find_if(UnaryPredicate &&p) && { return std::find_if(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::find_if_not() using this range as input.
-	template<typename UnaryPredicate> constexpr decltype(auto) find_if_not(UnaryPredicate &&p) & { return std::find_if_not(_begin, _end, std::forward<UnaryPredicate>(p)); }
-	template<typename UnaryPredicate> constexpr decltype(auto) find_if_not(UnaryPredicate &&p) && { return std::find_if_not(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 	template<typename UnaryPredicate> constexpr decltype(auto) find_if_not(UnaryPredicate &&p) const& { return std::find_if_not(_begin, _end, std::forward<UnaryPredicate>(p)); }
+	template<typename UnaryPredicate> constexpr decltype(auto) find_if_not(UnaryPredicate &&p) && { return std::find_if_not(std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::find() using this range as input.
-	template<typename Policy, typename T>
-	constexpr decltype(auto) find(Policy &&policy, const T &value) & { return std::find(std::forward<Policy>(policy), _begin, _end, value); }
-	template<typename Policy, typename T>
-	constexpr decltype(auto) find(Policy &&policy, const T &value) && { return std::find(std::forward<Policy>(policy), std::move(_begin), std::move(_end), value); }
 	template<typename Policy, typename T>
 	constexpr decltype(auto) find(Policy &&policy, const T &value) const& { return std::find(std::forward<Policy>(policy), _begin, _end, value); }
+	template<typename Policy, typename T>
+	constexpr decltype(auto) find(Policy &&policy, const T &value) && { return std::find(std::forward<Policy>(policy), std::move(_begin), std::move(_end), value); }
 
 	// equivalent to std::find_if() using this range as input.
 	template<typename Policy, typename UnaryPredicate>
-	constexpr decltype(auto) find_if(Policy &&policy, UnaryPredicate &&p) & { return std::find_if(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr decltype(auto) find_if(Policy &&policy, UnaryPredicate &&p) const& { return std::find_if(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename Policy, typename UnaryPredicate>
 	constexpr decltype(auto) find_if(Policy &&policy, UnaryPredicate &&p) && { return std::find_if(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename Policy, typename UnaryPredicate>
-	constexpr decltype(auto) find_if(Policy &&policy, UnaryPredicate &&p) const& { return std::find_if(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 
 	// equivalent to std::find_if_not() using this range as input.
 	template<typename Policy, typename UnaryPredicate>
-	constexpr decltype(auto) find_if_not(Policy &&policy, UnaryPredicate &&p) & { return std::find_if_not(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
+	constexpr decltype(auto) find_if_not(Policy &&policy, UnaryPredicate &&p) const& { return std::find_if_not(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 	template<typename Policy, typename UnaryPredicate>
 	constexpr decltype(auto) find_if_not(Policy &&policy, UnaryPredicate &&p) && { return std::find_if_not(std::forward<Policy>(policy), std::move(_begin), std::move(_end), std::forward<UnaryPredicate>(p)); }
-	template<typename Policy, typename UnaryPredicate>
-	constexpr decltype(auto) find_if_not(Policy &&policy, UnaryPredicate &&p) const& { return std::find_if_not(std::forward<Policy>(policy), _begin, _end, std::forward<UnaryPredicate>(p)); }
 
-	
+	// equivalent to std::adjacent_find() using this range as input.
+	constexpr decltype(auto) adjacent_find() const& { return std::adjacent_find(_begin, _end); }
+	constexpr decltype(auto) adjacent_find() && { return std::adjacent_find(std::move(_begin), std::move(_end)); }
+
+	// equivalent to std::adjacent_find() using this range as input.
+	template<typename BinaryPredicate> constexpr decltype(auto) adjacent_find(BinaryPredicate &&p) const& { return std::adjacent_find(_begin, _end, std::forward<BinaryPredicate>(p)); }
+	template<typename BinaryPredicate> constexpr decltype(auto) adjacent_find(BinaryPredicate &&p) && { return std::adjacent_find(std::move(_begin), std::move(_end), std::forward<BinaryPredicate>(p)); }
+
+	// equivalent to std::search_n() using this range as input.
+	template<typename Size, typename T> constexpr decltype(auto) search_n(Size count, const T &value) const& { return std::search_n(_begin, _end, count, value); }
+	template<typename Size, typename T> constexpr decltype(auto) search_n(Size count, const T &value) && { return std::search_n(std::move(_begin), std::move(_end), count, value); }
+
+	// equivalent to std::search_n() using this range as input.
+	template<typename Size, typename T, typename BinaryPredicate>
+	constexpr decltype(auto) search_n(Size count, const T &value, BinaryPredicate &&p) const& { return std::search_n(_begin, _end, count, value, std::forward<BinaryPredicate>(p)); }
+	template<typename Size, typename T, typename BinaryPredicate>
+	constexpr decltype(auto) search_n(Size count, const T &value, BinaryPredicate &&p) && { return std::search_n(std::move(_begin), std::move(_end), count, value, std::forward<BinaryPredicate>(p)); }
+
+	// equivalent to std::search_n() using this range as input.
+	template<typename Policy, typename Size, typename T>
+	constexpr decltype(auto) search_n(Policy &&policy, Size count, const T &value) const& { return std::search_n(std::forward<Policy>(policy), _begin, _end, count, value); }
+	template<typename Policy, typename Size, typename T>
+	constexpr decltype(auto) search_n(Policy &&policy, Size count, const T &value) && { return std::search_n(std::forward<Policy>(policy), std::move(_begin), std::move(_end), count, value); }
+
+	// equivalent to std::search_n() using this range as input.
+	template<typename Policy, typename Size, typename T, typename BinaryPredicate>
+	constexpr decltype(auto) search_n(Policy &&policy, Size count, const T &value, BinaryPredicate &&p) const& { return std::search_n(std::forward<Policy>(policy), _begin, _end, count, value, std::forward<BinaryPredicate>(p)); }
+	template<typename Policy, typename Size, typename T, typename BinaryPredicate>
+	constexpr decltype(auto) search_n(Policy &&policy, Size count, const T &value, BinaryPredicate &&p) && { return std::search_n(std::forward<Policy>(policy), std::move(_begin), std::move(_end), count, value, std::forward<BinaryPredicate>(p)); }
+
+public: // -- stdlib modification wrappers -- //
+
+	// equivalent to std::copy() from this range to some other destination.
+	template<typename OutputIt> constexpr decltype(auto) copy(OutputIt dest) const& { std::copy(_begin, _end, dest); }
+	template<typename OutputIt> constexpr decltype(auto) copy(OutputIt dest) && { std::copy(std::move(_begin), std::move(_end), dest); }
+
+	// equivalent to std::copy_if() from this range to some other destination.
+	template<typename OutputIt, typename UnaryPredicate>
+	constexpr decltype(auto) copy_if(OutputIt dest, UnaryPredicate &&p) const& { std::copy_if(_begin, _end, dest, std::forward<UnaryPredicate>(p)); }
+	template<typename OutputIt, typename UnaryPredicate>
+	constexpr decltype(auto) copy_if(OutputIt dest, UnaryPredicate &&p) && { std::copy_if(std::move(_begin), std::move(_end), dest, std::forward<UnaryPredicate>(p)); }
+
+	// equivalent to std::copy() from this range to some other destination.
+	template<typename Policy, typename OutputIt>
+	constexpr decltype(auto) copy(Policy &&policy, OutputIt dest) const& { std::copy(std::forward<Policy>(policy), _begin, _end, dest); }
+	template<typename Policy, typename OutputIt>
+	constexpr decltype(auto) copy(Policy &&policy, OutputIt dest) && { std::copy(std::forward<Policy>(policy), std::move(_begin), std::move(_end), dest); }
+
+	// equivalent to std::copy_if() from this range to some other destination.
+	template<typename Policy, typename OutputIt, typename UnaryPredicate>
+	constexpr decltype(auto) copy_if(Policy &&policy, OutputIt dest, UnaryPredicate &&p) const& { std::copy_if(std::forward<Policy>(policy), _begin, _end, dest, std::forward<UnaryPredicate>(p)); }
+	template<typename Policy, typename OutputIt, typename UnaryPredicate>
+	constexpr decltype(auto) copy_if(Policy &&policy, OutputIt dest, UnaryPredicate &&p) && { std::copy_if(std::forward<Policy>(policy), std::move(_begin), std::move(_end), dest, std::forward<UnaryPredicate>(p)); }
+
+	// equivalent to std::copy_backward() from this range to some other destination.
+	template<typename BidirIt> constexpr decltype(auto) copy_backward(BidirIt dest_end) const& { return std::copy_backward(_begin, _end, dest_end); }
+	template<typename BidirIt> constexpr decltype(auto) copy_backward(BidirIt dest_end) && { return std::copy_backward(_begin, _end, dest_end); }
+
+	// equivalent to std::move() from this range to some other destination.
+	template<typename OutputIt> constexpr decltype(auto) move(OutputIt dest) const& { return std::move(_begin, _end, dest); }
+	template<typename OutputIt> constexpr decltype(auto) move(OutputIt dest) && { return std::move(std::move(_begin), std::move(_end), dest); }
+
+	// equivalent to std::move() from this range to some other destination.
+	template<typename Policy, typename OutputIt>
+	constexpr decltype(auto) move(Policy &&policy, OutputIt dest) const& { return std::move(std::forward<Policy>(policy), _begin, _end, dest); }
+	template<typename Policy, typename OutputIt>
+	constexpr decltype(auto) move(Policy &&policy, OutputIt dest) && { return std::move(std::forward<Policy>(policy), std::move(_begin), std::move(_end), dest); }
+
+	// equivalent to std::move_backward() from this range to some other destination.
+	template<typename OutputIt> constexpr decltype(auto) move_backward(OutputIt dest_end) const& { return std::move_backward(_begin, _end, dest_end); }
+	template<typename OutputIt> constexpr decltype(auto) move_backward(OutputIt dest_end) && { return std::move_backward(std::move(_begin), std::move(_end), dest_end); }
+
+	// equivalent to std::fill() into this iterator range.
+	template<typename T> constexpr void fill(const T &value) { std::fill(_begin, _end, value); }
+
+	// equivalent to std::fill() into this iterator range.
+	template<typename Policy, typename T> void fill(Policy &&policy, const T &value) { std::fill(std::forward<Policy>(policy), _begin, _end, value); }
+
+	// transform
 };
 
 // given a begin and end iterator, constructs the iterator range [begin, end)
@@ -843,15 +891,5 @@ iterator_range<value_iterator<T>, value_iterator<T>> make_value_range(const T &b
 // given a begin iterator and a count, creates the iterator range [begin, begin + count) using counting iterators
 template<typename Iter>
 iterator_range<count_iterator<Iter>, count_iterator<Iter>> make_count_range(const Iter &begin, std::size_t count) { return { count_iterator<Iter>(begin, 0), count_iterator<Iter>(begin, count) }; }
-
-// expands to two comma-separated counting iterators representing the range [begin, begin + count)
-#define make_count_pair(begin, count) count_iterator<decltype(begin)>(begin, 0), count_iterator<decltype(begin)>(begin, count)
-
-// given an iterator range and a mapping function, creates a new iterator range for the mapped values.
-template<typename Iter, typename F>
-auto map_range(const iterator_range<Iter, Iter> &range, const F &func) -> iterator_range<mapping_iterator<Iter, std::decay_t<F>>, mapping_iterator<Iter, std::decay_t<F>>>
-{
-	return { mapping_iterator<Iter, std::decay_t<F>>(range.begin(), func), mapping_iterator<Iter, std::decay_t<F>>(range.end(), func) };
-}
 
 #endif
